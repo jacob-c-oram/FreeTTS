@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>FreeTTS</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #f4f6f8;
+      padding: 40px 20px;
+      text-align: center;
+      color: #333;
+    }
+
+    h1 {
+      font-size: 2.2em;
+      margin-bottom: 10px;
+    }
+
+    p.description {
+      margin-top: -10px;
+      color: #555;
+      font-size: 1rem;
+    }
+
+    textarea {
+      width: 90%;
+      max-width: 600px;
+      height: 200px;
+      padding: 15px;
+      font-size: 16px;
+      border-radius: 10px;
+      border: 1px solid #ccc;
+      resize: vertical;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+      white-space: pre-wrap;
+    }
+
+    .controls {
+      margin-top: 20px;
+    }
+
+    button, select, input[type=range] {
+      margin: 10px 5px;
+      padding: 10px 18px;
+      font-size: 16px;
+      border: none;
+      border-radius: 8px;
+      background: #007bff;
+      color: white;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+      transition: background 0.2s ease, transform 0.1s ease;
+    }
+
+    button:hover, select:hover {
+      background: #0056b3;
+      transform: translateY(-1px);
+    }
+
+    select {
+      background: white;
+      color: #333;
+      border: 1px solid #ccc;
+      box-shadow: none;
+    }
+
+    input[type=range] {
+      width: 200px;
+      background: #ddd;
+      cursor: pointer;
+      padding: 0;
+      height: 10px;
+    }
+
+    #word-count {
+      margin-top: 8px;
+      color: #666;
+      font-size: 14px;
+    }
+
+    #rateValue {
+      display: inline-block;
+      margin-left: 5px;
+      font-weight: bold;
+      color: #333;
+    }
+
+    @media screen and (max-width: 600px) {
+      textarea, select, button, input[type=range] {
+        font-size: 14px;
+        width: 100%;
+      }
+
+      .controls {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <h1>FreeTTS</h1>
+  <p class="description">Free unlimited text to speech conversion</p>
+
+  <textarea id="text-input" placeholder="Enter text..."></textarea>
+  <div id="word-count">Words: 0</div>
+
+  <div class="controls">
+    <label for="voiceSelect">Voice:</label>
+    <select id="voiceSelect"></select>
+
+    <label for="rateControl">Speed:</label>
+    <input type="range" id="rateControl" min="0.5" max="2" step="0.1" value="1" />
+    <span id="rateValue">1x</span>
+
+    <button id="play-pause-btn" onclick="handlePlayPause()">Play</button>
+    <button onclick="restartSpeech()">Restart</button>
+  </div>
+
+  <script>
+    let voices = [];
+    let chunks = [];
+    let originalText = '';
+    let currentChunk = 0;
+    let isSpeaking = false;
+    let isPaused = false;
+
+    const textarea = document.getElementById("text-input");
+    const playPauseBtn = document.getElementById("play-pause-btn");
+    const voiceSelect = document.getElementById("voiceSelect");
+    const rateControl = document.getElementById("rateControl");
+    const rateValue = document.getElementById("rateValue");
+
+    textarea.addEventListener('input', () => {
+      const words = textarea.value.trim().split(/\s+/).filter(Boolean);
+      document.getElementById("word-count").textContent = `Words: ${words.length}`;
+    });
+
+    rateControl.addEventListener("input", () => {
+      rateValue.textContent = rateControl.value + "x";
+    });
+
+    function loadVoices() {
+      voices = speechSynthesis.getVoices();
+      voiceSelect.innerHTML = '';
+      voices.forEach((voice, index) => {
+        const option = document.createElement("option");
+        option.value = index;
+        option.textContent = `${voice.name} (${voice.lang})${voice.default ? ' [default]' : ''}`;
+        voiceSelect.appendChild(option);
+      });
+    }
+
+    speechSynthesis.onvoiceschanged = loadVoices;
+    loadVoices();
+
+    function splitTextIntoChunks(text) {
+      return text
+        .replace(/([.?!])\s+/g, '$1|')
+        .split('|')
+        .map(chunk => chunk.trim())
+        .filter(Boolean);
+    }
+
+    function speakChunk(index) {
+      if (index >= chunks.length) {
+        isSpeaking = false;
+        playPauseBtn.textContent = "Play";
+        textarea.disabled = false;
+        return;
+      }
+
+      const chunk = chunks[index];
+      const utterance = new SpeechSynthesisUtterance(chunk);
+      const selectedVoice = voices[voiceSelect.value];
+      if (selectedVoice) utterance.voice = selectedVoice;
+      utterance.lang = selectedVoice?.lang || 'en-US';
+      utterance.rate = parseFloat(rateControl.value);
+
+      utterance.onend = () => {
+        if (!isPaused) {
+          currentChunk++;
+          speakChunk(currentChunk);
+        }
+      };
+
+      speechSynthesis.speak(utterance);
+    }
+
+    function handlePlayPause() {
+      if (!isSpeaking) {
+        const text = textarea.value.trim();
+        if (!text) return;
+
+        originalText = text;
+        chunks = splitTextIntoChunks(text);
+        currentChunk = 0;
+        isPaused = false;
+        isSpeaking = true;
+        playPauseBtn.textContent = "Pause";
+        textarea.disabled = true;
+        speakChunk(currentChunk);
+
+      } else if (speechSynthesis.speaking && !speechSynthesis.paused) {
+        speechSynthesis.pause();
+        isPaused = true;
+        playPauseBtn.textContent = "Resume";
+
+      } else if (speechSynthesis.paused) {
+        speechSynthesis.resume();
+        isPaused = false;
+        playPauseBtn.textContent = "Pause";
+      }
+    }
+
+    function restartSpeech() {
+      speechSynthesis.cancel();
+      isPaused = false;
+      isSpeaking = false;
+      currentChunk = 0;
+      playPauseBtn.textContent = "Play";
+      textarea.disabled = false;
+    }
+  </script>
+
+</body>
+</html>
